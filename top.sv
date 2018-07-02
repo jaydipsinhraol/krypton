@@ -11,72 +11,7 @@ import uvm_pkg :: * ;
 `include "tb_top_includes.svh"
 module top;
 
-  `ifdef AXI_ECC_EN
-    localparam AXI_ECC_EN     = 1                  ; // ECC Will be given on AXI Interface
-    `ifdef AXI_DATA_WIDTH_32
-      localparam AXI_ECC_FACTOR = 1                  ; // NO OF ECC Bytes // Multiplying Factor
-    `elsif AXI_DATA_WIDTH_128
-      localparam AXI_ECC_FACTOR = 2                  ; // NO OF ECC Bytes // Multiplying Factor
-    `elsif AXI_DATA_WIDTH_256
-      localparam AXI_ECC_FACTOR = 4                  ; // NO OF ECC Bytes // Multiplying Factor
-    `elsif AXI_DATA_WIDTH_512
-      localparam AXI_ECC_FACTOR = 8                  ; // NO OF ECC Bytes // Multiplying Factor
-    `elsif AXI_DATA_WIDTH_1024
-      localparam AXI_ECC_FACTOR = 16                  ; // NO OF ECC Bytes // Multiplying Factor
-    `else
-      localparam AXI_ECC_FACTOR = 1                  ; // NO OF ECC Bytes // Multiplying Factor
-    `endif
-  `else
-    localparam AXI_ECC_EN     = 0                  ; // ECC Will be given on AXI Interface
-    localparam AXI_ECC_FACTOR = 0                  ; // NO OF ECC Bytes // Multiplying Factor
-  `endif
-  localparam AXI_IDWIDTH    = 12                   ;
-  localparam AXI_ADDRWIDTH  = `ADDR_WIDTH          ;
-  localparam AXI_DATAWIDTH  = `AXI_DATA_WIDTH + (AXI_ECC_EN *AXI_ECC_FACTOR*8); // TBD If Actual Uneven Width is passed from defines.
-  localparam AXI_STRBWIDTH  = (AXI_DATAWIDTH/8)    ;
-  localparam NB_MSTR        =`NB_MSTR              ;
-  localparam NB_RANK        =`NB_RANK              ;
-  localparam NUM_FREQ_PHASE =`FREQ_RATIO           ;
-
-  //DDR4 reset and clock
-  reg ddr_clk;
-  reg dfi_clk;
-  reg dfi_rstn;
-  reg start_initialization;
-  
-  reg lck = 0;
-  reg lrst_n = 0;
-  wire lcke;
-  wire[1:0] lcom_i;
-  wire[2:0] lcom_o;
-  wire      lcom_oe;
-  ////////////////////////////////////////////////////////////////////////////////////////////
-  // Defined for different width MC - DFI connection /////////////////////////////////////////
-
-  localparam ECC_ENABLE                            = AXI_ECC_EN ? 0 : 1                      ;
-  localparam DFI_BADDR_WIDTH                       = 3                                       ;
-  localparam MAX_DFI_DATA_BITS                     = (DIMM_DATA_BITS + 8 * (ECC_ENABLE || AXI_ECC_EN)) * 2   ;
-  localparam MAX_DFI_DM_BITS                       = (      NB_BYTES +     (ECC_ENABLE || AXI_ECC_EN)) * 2   ;
-
-  bit [NUM_FREQ_PHASE -1 : 0][`MAX_NB_RANK * `NB_LOGICAL_RANK  -1 : 0]      dfi_cs_n          ;
-  bit [NUM_FREQ_PHASE -1 : 0][`MAX_NB_RANK * `NB_LOGICAL_RANK  -1 : 0]      dfi_cke           ;
-  bit [NUM_FREQ_PHASE -1 : 0][`MAX_NB_RANK * `NB_LOGICAL_RANK  -1 : 0]      dfi_odt           ;
-  bit [NUM_FREQ_PHASE -1 : 0][DFI_BADDR_WIDTH   -1 : 0]      dfi_bank          ;
-  bit [NUM_FREQ_PHASE -1 : 0][MAX_DFI_DATA_BITS -1 : 0]      dfi_rddata        ;
-  bit [NUM_FREQ_PHASE -1 : 0][MAX_DFI_DM_BITS   -1 : 0]      dfi_rddata_dbi    ;
-  bit [NUM_FREQ_PHASE -1 : 0][MAX_DFI_DATA_BITS -1 : 0]      dfi_wrdata        ;
-  bit [NUM_FREQ_PHASE -1 : 0][MAX_DFI_DM_BITS   -1 : 0]      dfi_wrdata_mask   ;
-  
-  ////////////////////////////////////////////////////////////////////////////////////////////
-  
-
-  //DDR4 timings
-  `ifdef DDR3
-  DDR3_Timings timings = new();
-  `else
-  DDR4_Timings timings = new();
-  `endif
-
+	
 
   wire [NB_MSTR -1:0][1:0]                              axi_rresp            ;
   //////////////////////////////////////////////////////////////////////
@@ -84,27 +19,8 @@ module top;
   //////////////////////////////////////////////////////////////////////
   reg [`NB_MSTR-1:0] axiClock;
   reg axiResetN;
-  axi_interface#(AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,(`AXI_DATA_WIDTH/8),AXI_ECC_EN) axi_interface[`NB_MSTR]( , );
-  virtual axi_interface#(AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,(`AXI_DATA_WIDTH/8),AXI_ECC_EN) axi_interface_vi[`NB_MSTR];
-  static string passed_sting;
-  generate//{
-    for(genvar i=0;i<`NB_MSTR;i++)begin//{
-      assign axi_interface[i].AXI_ACLK = axiClock[i];
-      assign axi_interface[i].AXI_ARESET_N = axiResetN;
-      assign axi_interface[i].AXI_BRESP = 0;
-      assign axi_interface[i].AXI_RRESP = axi_rresp[i];
-    end//}
-  endgenerate //}
-  initial begin//{
-    axi_interface_vi = axi_interface;
-    for(int i=0;i<`NB_MSTR;i++)begin//{
-      uvm_config_db #(virtual interface axi_interface#(AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,(`AXI_DATA_WIDTH/8),AXI_ECC_EN))::set(null,$psprintf("*.*.AXI_Master_Agent_%0d*",i),"axi_interface",axi_interface_vi[i]);
-
-    `ifdef KRYPTON_SCHEDULER_ENABLE
-      uvm_config_db #(virtual interface axi_interface#(AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,AXI_ADDRWIDTH,AXI_IDWIDTH,`AXI_DATA_WIDTH,(`AXI_DATA_WIDTH/8),AXI_ECC_EN))::set(null,$psprintf("*.*.req_receiver[%0d]*",i),"axi_interface",axi_interface_vi[i]);
-    `endif
-    end//}
-  end//}
+  
+  
   //////////////////////////////////////////////////////////////////////
 
   //////////////////////////////////////////////////////////////////////
